@@ -10,6 +10,9 @@ EMBED_COLOR = 0xFF6B00
 
 GIVEAWAY_ALLOWED_ROLES = {1476236683014836440}
 
+# Tracks active giveaways: message_id -> asyncio.Task
+active_giveaways: dict[int, asyncio.Task] = {}
+
 
 def can_use_giveaway():
     async def predicate(interaction: discord.Interaction) -> bool:
@@ -29,6 +32,56 @@ def parse_duration(duration_str: str) -> int | None:
         return None
     value, unit = int(match.group(1)), match.group(2)
     return value * {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit]
+
+
+async def run_giveaway(
+    interaction: discord.Interaction,
+    msg: discord.Message,
+    view: "GiveawayView",
+    prize: str,
+    winner_count: int,
+    seconds: int,
+    ends_at: datetime,
+):
+    try:
+        await asyncio.sleep(seconds)
+    except asyncio.CancelledError:
+        # Giveaway was cancelled
+        cancelled_embed = discord.Embed(
+            title="🚫 Giveaway Cancelled",
+            description=f"**Prize:** {prize}\n\nThis giveaway has been cancelled.",
+            color=discord.Color.red(),
+        )
+        view.stop()
+        for item in view.children:
+            item.disabled = True
+        await msg.edit(embed=cancelled_embed, view=view)
+        active_giveaways.pop(msg.id, None)
+        return
+
+    entrants = view.entrants
+    result_embed = discord.Embed(color=EMBED_COLOR)
+
+    if not entrants:
+        result_embed.title = "🎉 Giveaway Ended"
+        result_embed.description = f"**Prize:** {prize}\n\nNo one entered the giveaway."
+    else:
+        chosen = random.sample(entrants, min(winner_count, len(entrants)))
+        winners_mentions = ", ".join(w.mention for w in chosen)
+        result_embed.title = "🎉 Giveaway Ended"
+        result_embed.description = f"**Prize:** {prize}\n\n**Winner(s):** {winners_mentions}"
+        await interaction.channel.send(
+            content=f"🎊 Congrats {winners_mentions}! You won **{prize}**!"
+        )
+
+    result_embed.timestamp = ends_at
+
+    view.stop()
+    for item in view.children:
+        item.disabled = True
+
+    await msg.edit(embed=result_embed, view=view)
+    active_giveaways.pop(msg.id, None)
 
 
 class GiveawayModal(discord.ui.Modal, title="Create a Giveaway"):
@@ -101,30 +154,11 @@ class GiveawayModal(discord.ui.Modal, title="Create a Giveaway"):
 
         await interaction.delete_original_response()
 
-        await asyncio.sleep(seconds)
-
-        entrants = view.entrants
-        result_embed = discord.Embed(color=EMBED_COLOR)
-
-        if not entrants:
-            result_embed.title = "🎉 Giveaway Ended"
-            result_embed.description = f"**Prize:** {self.prize.value}\n\nNo one entered the giveaway."
-        else:
-            chosen = random.sample(entrants, min(winner_count, len(entrants)))
-            winners_mentions = ", ".join(w.mention for w in chosen)
-            result_embed.title = "🎉 Giveaway Ended"
-            result_embed.description = f"**Prize:** {self.prize.value}\n\n**Winner(s):** {winners_mentions}"
-            await interaction.channel.send(
-                content=f"🎊 Congrats {winners_mentions}! You won **{self.prize.value}**!"
-            )
-
-        result_embed.timestamp = ends_at
-
-        view.stop()
-        for item in view.children:
-            item.disabled = True
-
-        await msg.edit(embed=result_embed, view=view)
+        # Start giveaway task and track it
+        task = asyncio.create_task(
+            run_giveaway(interaction, msg, view, self.prize.value, winner_count, seconds, ends_at)
+        )
+        active_giveaways[msg.id] = task
 
 
 class GiveawayView(discord.ui.View):
@@ -158,6 +192,30 @@ class Giveaway(commands.Cog):
     ):
         modal = GiveawayModal(ping=ping)
         await interaction.response.send_modal(modal)
+
+    @app_commands.command(name="giveaway-cancel", description="Cancel an active giveaway by its message ID")
+    @app_commands.describe(message_id="The ID of the giveaway message")
+    @can_use_giveaway()
+    async def giveaway_cancel(
+        self,
+        interaction: discord.Interaction,
+        message_id: str,
+    ):
+        try:
+            mid = int(message_id)
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid message ID.", ephemeral=True)
+            return
+
+        task = active_giveaways.get(mid)
+        if not task:
+            await interaction.response.send_message(
+                "❌ No active giveaway found with that message ID.", ephemeral=True
+            )
+            return
+
+        task.cancel()
+        await interaction.response.send_message("✅ Giveaway cancelled.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
