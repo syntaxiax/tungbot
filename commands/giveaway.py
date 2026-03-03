@@ -1,18 +1,30 @@
 import discord
 import asyncio
 import random
+import re
 from discord import app_commands
 from discord.ext import commands
 from datetime import datetime, timedelta
-import re
 
 EMBED_COLOR = 0xFF6B00
 
+GIVEAWAY_ALLOWED_ROLES = {1476236683014836440}
+
+
+def can_use_giveaway():
+    async def predicate(interaction: discord.Interaction) -> bool:
+        if interaction.user.guild_permissions.administrator:
+            return True
+        user_role_ids = {role.id for role in interaction.user.roles}
+        if user_role_ids & GIVEAWAY_ALLOWED_ROLES:
+            return True
+        await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+        return False
+    return app_commands.check(predicate)
+
 
 def parse_duration(duration_str: str) -> int | None:
-    """Convert strings like 10s, 5m, 2h, 1d to seconds."""
-    pattern = r"^(\d+)(s|m|h|d)$"
-    match = re.match(pattern, duration_str.strip().lower())
+    match = re.match(r"^(\d+)(s|m|h|d)$", duration_str.strip().lower())
     if not match:
         return None
     value, unit = int(match.group(1)), match.group(2)
@@ -52,34 +64,27 @@ class GiveawayModal(discord.ui.Modal, title="Create a Giveaway"):
         self.ping = ping
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Validate duration
         seconds = parse_duration(self.duration.value)
         if seconds is None:
             await interaction.response.send_message(
-                "❌ Invalid duration. Use formats like `30s`, `10m`, `2h`, `1d`.",
-                ephemeral=True,
+                "❌ Invalid duration. Use formats like `30s`, `10m`, `2h`, `1d`.", ephemeral=True
             )
             return
 
-        # Validate winner count
         try:
             winner_count = int(self.winners.value)
             if winner_count < 1:
                 raise ValueError
         except ValueError:
             await interaction.response.send_message(
-                "❌ Number of winners must be a positive number.",
-                ephemeral=True,
+                "❌ Number of winners must be a positive number.", ephemeral=True
             )
             return
 
         ends_at = datetime.utcnow() + timedelta(seconds=seconds)
         ends_timestamp = int(ends_at.timestamp())
 
-        embed = discord.Embed(
-            title=f"🎉 {self.prize.value}",
-            color=EMBED_COLOR,
-        )
+        embed = discord.Embed(title=f"🎉 {self.prize.value}", color=EMBED_COLOR)
         embed.add_field(name="Ends", value=f"<t:{ends_timestamp}:R> (<t:{ends_timestamp}:f>)", inline=False)
         embed.add_field(name="Winners", value=str(winner_count), inline=True)
         embed.add_field(name="Hosted by", value=interaction.user.mention, inline=True)
@@ -96,12 +101,9 @@ class GiveawayModal(discord.ui.Modal, title="Create a Giveaway"):
 
         await interaction.delete_original_response()
 
-        # Wait then pick winners
         await asyncio.sleep(seconds)
 
-        # Reload view to get final entrants
         entrants = view.entrants
-
         result_embed = discord.Embed(color=EMBED_COLOR)
 
         if not entrants:
@@ -116,10 +118,8 @@ class GiveawayModal(discord.ui.Modal, title="Create a Giveaway"):
                 content=f"🎊 Congrats {winners_mentions}! You won **{self.prize.value}**!"
             )
 
-        result_embed.set_footer(text=f"Ended at")
         result_embed.timestamp = ends_at
 
-        # Disable the button and update embed
         view.stop()
         for item in view.children:
             item.disabled = True
@@ -136,14 +136,11 @@ class GiveawayView(discord.ui.View):
     async def enter(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user in self.entrants:
             self.entrants.remove(interaction.user)
-            await interaction.response.send_message(
-                "✅ You left the giveaway.", ephemeral=True
-            )
+            await interaction.response.send_message("✅ You left the giveaway.", ephemeral=True)
         else:
             self.entrants.append(interaction.user)
             await interaction.response.send_message(
-                f"🎉 You entered the giveaway! Good luck! (Total entrants: {len(self.entrants)})",
-                ephemeral=True,
+                f"🎉 You entered! Good luck! (Total entrants: {len(self.entrants)})", ephemeral=True
             )
 
 
@@ -153,6 +150,7 @@ class Giveaway(commands.Cog):
 
     @app_commands.command(name="giveaway", description="Start a giveaway in this channel")
     @app_commands.describe(ping="Optional role to ping for the giveaway")
+    @can_use_giveaway()
     async def giveaway(
         self,
         interaction: discord.Interaction,
