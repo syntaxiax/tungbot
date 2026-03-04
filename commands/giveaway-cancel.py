@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import comands.giveaway_utils as giveaway_utils
+import commands.giveaway_utils as giveaway_utils
 
 GIVEAWAY_ALLOWED_ROLES = {1476236683014836440}
 
