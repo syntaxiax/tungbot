@@ -131,21 +131,23 @@ class GiveawayModal(discord.ui.Modal, title="Create a Giveaway"):
 
         view = GiveawayView()
 
+        # Acknowledge the modal silently, then send the giveaway via channel directly
         await interaction.response.defer(ephemeral=True)
 
-        # Use the saved channel reference, not interaction.channel (can be None after defer)
         msg = await self.channel.send(
             content=self.ping.mention if self.ping else None,
             embed=embed,
             view=view,
         )
 
-        await interaction.delete_original_response()
-
+        # Store the task before responding so cancel can find it immediately
         task = asyncio.create_task(
             run_giveaway(self.channel, msg, view, self.prize.value, winner_count, seconds, ends_at)
         )
         giveaway_utils.active_giveaways[msg.id] = task
+
+        # Log to console so you can verify the ID
+        print(f"[Giveaway] Started | message_id={msg.id} | prize={self.prize.value}")
 
 
 class Giveaway(commands.Cog):
@@ -156,7 +158,6 @@ class Giveaway(commands.Cog):
     @app_commands.describe(ping="Optional role to ping for the giveaway")
     @can_use_giveaway()
     async def giveaway(self, interaction: discord.Interaction, ping: discord.Role | None = None):
-        # Save channel before modal opens since interaction.channel can become None
         modal = GiveawayModal(ping=ping, channel=interaction.channel)
         await interaction.response.send_modal(modal)
 
