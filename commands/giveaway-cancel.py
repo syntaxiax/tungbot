@@ -31,6 +31,8 @@ class GiveawayCancel(commands.Cog):
             await interaction.response.send_message("❌ Invalid message ID.", ephemeral=True)
             return
 
+        print(f"[Giveaway Cancel] Looking for message_id={mid} | active={list(giveaway_utils.active_giveaways.keys())}")
+
         task = giveaway_utils.active_giveaways.get(mid)
         if not task or task.done():
             await interaction.response.send_message("❌ No active giveaway found with that message ID.", ephemeral=True)
