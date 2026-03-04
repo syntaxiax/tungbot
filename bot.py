@@ -16,15 +16,19 @@ bot = commands.Bot(command_prefix="?", intents=intents)
 
 SKIP = {"giveaway_utils"}
 
-# ── Tiny HTTP server just to pass Koyeb health checks ──
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"OK")
 
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
     def log_message(self, format, *args):
-        pass  # Silence HTTP logs
+        pass
 
 
 def run_health_server():
@@ -32,7 +36,6 @@ def run_health_server():
     server.serve_forever()
 
 
-# Start health server in background thread
 threading.Thread(target=run_health_server, daemon=True).start()
 
 
