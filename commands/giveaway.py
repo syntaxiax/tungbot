@@ -5,7 +5,7 @@ import re
 from discord import app_commands
 from discord.ext import commands
 from datetime import datetime, timedelta
-import comands.giveaway_utils as giveaway_utils
+import commands.giveaway_utils as giveaway_utils
 
 EMBED_COLOR = 0xFF6B00
 GIVEAWAY_ALLOWED_ROLES = {1476236683014836440}
